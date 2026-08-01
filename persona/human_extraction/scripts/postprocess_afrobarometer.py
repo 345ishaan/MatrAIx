@@ -2,6 +2,7 @@
 """Create a rule-only Afrobarometer extraction with exactly 1,290 fields."""
 
 import argparse
+import gzip
 import json
 import os
 import sys
@@ -39,27 +40,46 @@ def evidence_for(dim, profile_text):
     if prefix:
         return next((line for line in lines if line.startswith(prefix)), "")
     if dim == "demo_religion_affiliation":
-        return next((line for line in lines if line.startswith("Stated survey-derived value: identifies as ")), "")
+        return next(
+            (
+                line
+                for line in lines
+                if line.startswith("Stated survey-derived value: identifies as ")
+            ),
+            "",
+        )
     return ""
 
 
 def build_record(uid, profile, order, allowed):
-    fields = normalize([], order, allowed,
-                       profile_text=profile["profile_text"],
-                       observed=profile.get("observed", {}))
+    fields = normalize(
+        [],
+        order,
+        allowed,
+        profile_text=profile["profile_text"],
+        observed=profile.get("observed", {}),
+    )
     for field in fields:
         if field["field_id"] in profile.get("observed", {}):
             field["evidence"] = evidence_for(field["field_id"], profile["profile_text"])
             field["description"] = "Mapped exactly from an observed source field."
+            field["provenance"] = "observed"
+        else:
+            field["provenance"] = "unobserved"
     return {
         "user_id": uid,
         "source": "afrobarometer_r9",
         "model": None,
         "extraction_method": "rule_based_crosswalk",
         "fields": fields,
-        "observed": json.dumps(profile.get("observed", {}), ensure_ascii=False, sort_keys=True),
-        "source_inference_flags": json.dumps(profile.get("source_inference_flags", {}),
-                                             ensure_ascii=False, sort_keys=True),
+        "observed": json.dumps(
+            profile.get("observed", {}), ensure_ascii=False, sort_keys=True
+        ),
+        "source_inference_flags": json.dumps(
+            profile.get("source_inference_flags", {}),
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
     }
 
 
@@ -68,17 +88,31 @@ def write_parquet(path, profiles, order, allowed, batch_size=100):
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ImportError as exc:
-        raise SystemExit("Parquet output requires pyarrow: pip install pyarrow") from exc
-    field_type = pa.struct([
-        ("field_id", pa.string()), ("value", pa.string()), ("confidence", pa.float64()),
-        ("evidence", pa.string()), ("description", pa.string()),
-        ("assignment_type", pa.string()),
-    ])
-    schema = pa.schema([
-        ("user_id", pa.string()), ("source", pa.string()), ("model", pa.string()),
-        ("extraction_method", pa.string()), ("fields", pa.list_(field_type)),
-        ("observed", pa.string()), ("source_inference_flags", pa.string()),
-    ])
+        raise SystemExit(
+            "Parquet output requires pyarrow: pip install pyarrow"
+        ) from exc
+    field_type = pa.struct(
+        [
+            ("field_id", pa.string()),
+            ("value", pa.string()),
+            ("confidence", pa.float64()),
+            ("evidence", pa.string()),
+            ("description", pa.string()),
+            ("assignment_type", pa.string()),
+            ("provenance", pa.string()),
+        ]
+    )
+    schema = pa.schema(
+        [
+            ("user_id", pa.string()),
+            ("source", pa.string()),
+            ("model", pa.string()),
+            ("extraction_method", pa.string()),
+            ("fields", pa.list_(field_type)),
+            ("observed", pa.string()),
+            ("source_inference_flags", pa.string()),
+        ]
+    )
     writer = pq.ParquetWriter(path, schema, compression="zstd")
     batch = []
     try:
@@ -95,8 +129,12 @@ def write_parquet(path, profiles, order, allowed, batch_size=100):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--profiles", required=True, help="output from prepare_afrobarometer.py")
-    ap.add_argument("--schema", default=os.path.join(REPO, "persona/schema/dimensions.json"))
+    ap.add_argument(
+        "--profiles", required=True, help="output from prepare_afrobarometer.py"
+    )
+    ap.add_argument(
+        "--schema", default=os.path.join(REPO, "persona/schema/dimensions.json")
+    )
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -106,11 +144,14 @@ def main():
     if args.out.lower().endswith(".parquet"):
         write_parquet(args.out, profiles, order, allowed)
     else:
-        with open(args.out, "w", encoding="utf-8") as dst:
+        opener = gzip.open if args.out.lower().endswith(".gz") else open
+        with opener(args.out, "wt", encoding="utf-8") as dst:
             for uid, profile in profiles.items():
                 record = build_record(uid, profile, order, allowed)
                 record["observed"] = json.loads(record["observed"])
-                record["source_inference_flags"] = json.loads(record["source_inference_flags"])
+                record["source_inference_flags"] = json.loads(
+                    record["source_inference_flags"]
+                )
                 dst.write(json.dumps(record, ensure_ascii=False) + "\n")
     print(f"wrote {len(profiles):,} personas ({len(order)} fields each) -> {args.out}")
 

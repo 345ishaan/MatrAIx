@@ -82,7 +82,9 @@ Submitted 2026-07-20:
 | Real Human Survey | `33386507` | Completed |
 | Strict finalization | `33386509` | Cancelled by failed dependency |
 | Original Hugging Face upload | `33386510` | Cancelled by failed dependency |
-| Accepted partial-snapshot upload | `33714427` | Submitted; initially pending for priority |
+| Initial partial-snapshot upload | `33714427` | Cancelled after 2:31:21 to remove the CLI token argument |
+| First secured upload resume | `33777486` | Cancelled after 1:07 for remote legacy-data cleanup |
+| Secured upload completion | `33778360` | Completed in 5:36:53 with exit code 0 |
 
 Synthetic materialization, 464 of 465 human tasks, and the Real Human Survey
 completed. Human task 73 failed; the dependency-bound strict finalizer and
@@ -103,41 +105,119 @@ files:          2,165
 bytes:          3,184,579,171,356
 ```
 
-Hugging Face target:
+Hugging Face locations:
 
 ```text
-repo: MatrAIx2026/Persona8B
-revision: unified-8.4b
+primary mirror: https://huggingface.co/datasets/MatrAIx/Persona8B/tree/main
+original upload: https://huggingface.co/datasets/MatrAIx2026/Persona8B/tree/unified-8.4b
 ```
 
 The dedicated revision prevents this physical Parquet snapshot from being
 mixed with the repository's earlier 1B raw-code publication on `main`.
+Legacy raw-code shards and manifests inherited by this revision were removed in
+Hugging Face commit `3c67684566e1cd146e29a0613d8b6ee66580a4bb`. The revision is
+reserved for this physical Parquet snapshot and its release metadata.
 
 Target URL:
 
 ```text
-https://huggingface.co/datasets/MatrAIx2026/Persona8B/tree/unified-8.4b
+https://huggingface.co/datasets/MatrAIx/Persona8B/tree/main
 ```
 
 Authentication was verified as the `MatrAIx` Hugging Face identity before job
 submission. Tokens are provided through the environment and must never be
 written into source, manifests, logs, or chat.
 
+## Upload progress log
+
+### 2026-07-21 01:35 EDT
+
+- Current upload job: `33778360` on `seas_compute`, requesting one node, eight
+  CPUs, 16 GB memory, and eight Hugging Face upload workers.
+- Current scheduler state: `PENDING (Priority)`; the secured resume has not
+  started and has no stdout or stderr yet.
+- Cleaned remote revision: 826 committed files and 199,975,268 bytes.
+- Current Parquet progress: 256 committed files totaling 198,832,257 bytes,
+  all under `data/amazon/`.
+- Metadata already committed: release README, manifest, code schema, 565 task
+  reports, submission metadata, and `.gitattributes`.
+- Legacy cleanup: 20 inherited raw-code shards plus old manifests and run notes
+  (about 404 GB) were removed from `unified-8.4b` in Hugging Face commit
+  `3c67684566e1cd146e29a0613d8b6ee66580a4bb`.
+- Initial job `33714427` spent about two hours hashing the full 3.18 TB payload,
+  then ran eight concurrent uploads. Its first eight approximately 1.88 GB
+  synthetic transfers reached 100% locally but were not committed before that
+  job was cancelled, so they are not counted as remote completion. The local
+  `upload-large-folder` cache is retained for resume.
+- Observed aggregate network throughput during that first synthetic batch was
+  approximately 10-15 MB/s. At that rate, 3.18 TB requires roughly 2.5-3.7
+  days of transfer time, excluding queue time and retries. The three-day Slurm
+  wall time may therefore require at least one resumable resubmission.
+- One HTTP 502 was observed and retried automatically; no unrecovered upload
+  exception was recorded.
+- Credential hardening: `jobs/upload.job` now relies on the `HF_TOKEN`
+  environment variable and does not place a token in the process command line.
+  The separate token previously used by the initial job should be revoked and
+  rotated because it was visible in that process's arguments.
+
+### 2026-07-21 02:55 EDT
+
+- Secured resume job `33778360` started at 02:37 EDT and has run for about 17
+  minutes on one node with eight CPUs and eight upload workers.
+- The resumable cache avoided repeating the full hash pass: all 2,734 local
+  files are already hashed, covering the complete 3.2 TB upload root.
+- Hugging Face uploader state reports 373 of 2,165 Parquet files pre-uploaded,
+  totaling 16.3 GB. Seven workers are actively pre-uploading and one is waiting.
+- The dynamic multipart display shows 119 of 127 files in the current processing
+  set and approximately 211/458 GB traversed within that set. These values
+  include in-progress/resumed multipart work and are not treated as committed
+  repository bytes.
+- The authoritative remote revision currently contains 826 committed files and
+  199,975,268 bytes. This includes 256 Amazon Parquet files totaling 198,832,257
+  bytes plus README, manifest, schema, reports, submission metadata, and
+  `.gitattributes`.
+- No new synthetic Parquet commit is visible remotely yet. Large LFS/Xet files
+  become visible only after their multipart upload and repository commit finish,
+  so pre-upload progress can advance substantially before remote committed bytes
+  change.
+- Current job logs contain no unrecovered exception or new rate-limit failure.
+  Continue monitoring both the uploader counters and the remote revision rather
+  than estimating progress from remote committed bytes alone.
+
+### 2026-07-22: `MatrAIx/Persona8B` mirror verification
+
+- Dedicated environment credential `HF_TOKEN_persona8b` was verified with the
+  `MatrAIx` Hugging Face identity and write access to `MatrAIx/Persona8B`.
+- The target `main` revision already contains the complete accepted snapshot, so
+  another 3.18 TB network transfer was not submitted.
+- All 2,734 local payload files are present remotely with identical paths and
+  byte sizes. The only extra remote file is the expected `.gitattributes`.
+- All 2,165 Parquet LFS objects were compared by SHA-256 using the local
+  `upload-large-folder` cache and remote LFS metadata: 2,165 matches, zero
+  missing paths, zero extra data paths, and zero hash mismatches.
+- Verified Parquet bytes: 3,184,579,171,356. The remote data subtree contains
+  exactly 2,165 files: 1,700 synthetic and 465 human/survey Parquet files.
+- Top-level `README.md`, `manifest.json`, `persona_codes.schema.json`, and
+  `submission.json` also have byte-identical SHA-256 hashes locally and remotely.
+- The target's upload history shows the final `upload-large-folder` commit at
+  2026-07-21 12:14 UTC. The target is therefore treated as a complete verified
+  mirror rather than retransmitted redundantly.
+
 ## Run and monitor
 
 ```bash
 cd /n/netscratch/lu_lab/Lab/xiaominli/LLMResearch/MatrAIx
 
-squeue -j 33714427 -o '%.18i %.30j %.14P %.10T %.10M %R'
-sacct -j 33714427 -X \
+squeue -j 33778360 -o '%.18i %.30j %.14P %.10T %.10M %R'
+sacct -j 33778360 -X \
   --format=JobID,JobName,State,ExitCode,Elapsed,Start,End
 
 cat persona/post_process/unified_dataset/results/persona8b_8_4b_20260720/manifest.json
 
 tail -n 100 \
-  persona/post_process/unified_dataset/jobs/sbatch_logs/persona8b_upload_partial_33714427.out
+  persona/post_process/unified_dataset/jobs/sbatch_logs/persona8b_upload_partial_33778360.out
 tail -n 100 \
-  persona/post_process/unified_dataset/jobs/sbatch_logs/persona8b_upload_partial_33714427.err
+  persona/post_process/unified_dataset/jobs/sbatch_logs/persona8b_upload_partial_33778360.err
 ```
 
 Array tasks write through temporary Parquet files and atomic reports. Failed or
@@ -145,10 +225,10 @@ preempted tasks can be resubmitted by array index without changing successful
 outputs. The upload command is resumable and stores its local progress metadata
 under the materialized folder.
 
-If upload job `33714427` fails or reaches its three-day wall time, resubmit
-[`jobs/upload.job`](jobs/upload.job) with the same `OUTPUT`, `REPO_ID`, and
-`REVISION`. `hf upload-large-folder` reuses its local cache and skips completed
-work. Do not rerun the full materialization pipeline merely to resume upload.
+Upload job `33778360` completed successfully. If a future mirror repair is
+needed, resubmit [`jobs/upload.job`](jobs/upload.job) with the desired `REPO_ID`
+and `REVISION`; `hf upload-large-folder` reuses its local cache and server-side
+LFS/Xet objects. Do not rerun the materialization pipeline to repair a mirror.
 
 ## Production inputs
 
@@ -166,8 +246,9 @@ work. Do not rerun the full materialization pipeline merely to resume upload.
 
 - Do not describe this accepted snapshot as exactly 8.4B rows.
 - Do not upload the quarantined task-73 `.parquet.part` file.
-- Do not upload this physical snapshot to `main`; use `unified-8.4b`.
+- `MatrAIx2026/Persona8B` uses `unified-8.4b`; the verified
+  `MatrAIx/Persona8B` mirror intentionally uses `main`.
 - Do not delete source data, rejection bitmaps, reports, or completed Parquet
   shards while upload is active.
-- Do not declare the upload complete until job `33714427` succeeds and the
-  dataset files are visible on the Hugging Face revision.
+- Both documented Hugging Face locations are complete and manifest-verified as
+  of 2026-07-22.
